@@ -3,6 +3,8 @@
 import csv
 import os
 
+from typing import Optional
+
 import click
 import pytorch_lightning as pl
 import torch
@@ -11,9 +13,9 @@ from torch.utils import data
 from . import collators, datasets, models, util
 
 
-def write_predictions(
+def predict(
     model: models.base.BaseEncoderDecoder,
-    data_loader: torch.utils.data.DataLoader,
+    loader: torch.utils.data.DataLoader,
     output_path: str,
     arch: str,
     batch_size: int,
@@ -25,13 +27,13 @@ def write_predictions(
     features_sep: str,
     include_features: bool,
     gpu: bool,
-    beam_width: int = None,
+    beam_width: Optional[int] = None,
 ) -> None:
     """Writes predictions to output file.
 
     Args:
         model (models.BaseEncoderDecoder).
-        data_loader (torch.utils.data.DataLoader).
+        loader (torch.utils.data.DataLoader).
         output_path (str).
         arch (str).
         batch_size (int).
@@ -48,25 +50,26 @@ def write_predictions(
     model.beam_width = beam_width
     model.eval()
     # Test loop.
-    accelerator = "gpu" if gpu and torch.cuda.is_available() else "cpu"
     tester = pl.Trainer(
-        accelerator=accelerator,
+        accelerator="gpu" if gpu and torch.cuda.is_available() else "cpu",
         devices=1,
+        max_epochs=0,  # Silences a warning.
+        num_sanity_val_steps=0,
     )
     util.log_info("Predicting...")
-    predicted = tester.predict(model, dataloaders=data_loader)
+    predicted = tester.predict(model, dataloaders=loader)
     util.log_info(f"Writing to {output_path}")
     util.log_info(f"Source column: {source_col}")
     util.log_info(f"Target column: {target_col}")
     if features_col:
         util.log_info(f"Features column: {features_col}")
-    collator = data_loader.collate_fn
-    test_set = data_loader.dataset
+    collator = loader.collate_fn
+    dataset = loader.dataset
     with open(output_path, "w") as sink:
         tsv_writer = csv.writer(sink, delimiter="\t")
         row_template = [""] * max(source_col, target_col, features_col)
-        for batch, pred_batch in zip(data_loader, predicted):
-            if arch != "transducer":
+        for batch, pred_batch in zip(loader, predicted):
+            if arch not in ["transducer"]:
                 # -> B x seq_len x vocab_size
                 pred_batch = pred_batch.transpose(1, 2)
                 if beam_width is not None:
@@ -75,20 +78,23 @@ def write_predictions(
                     _, pred_batch = torch.max(pred_batch, dim=2)
             # Uses CPU because PL seems to always return CPU tensors.
             pred_batch = model.evaluator.finalize_preds(
-                pred_batch, test_set.end_idx, test_set.pad_idx, "cpu"
-            )
-            prediction_strs = test_set.decode_target(
                 pred_batch,
-                symbols=True,
-                special=False,
+                dataset.end_idx,
+                dataset.pad_idx,
+                "cpu",
             )
-            source_strs = test_set.decode_source(
+            prediction_strs = dataset.decode_target(
+                pred_batch, symbols=True, special=False
+            )
+            source_strs = dataset.decode_source(
                 batch[0], symbols=True, special=False
             )
             features_batch = batch[2] if collator.has_features else batch[0]
             features_strs = (
-                test_set.decode_features(
-                    features_batch, symbols=True, special=False
+                dataset.decode_features(
+                    features_batch,
+                    symbols=True,
+                    special=False,
                 )
                 if include_features
                 else [None for _ in range(batch_size)]
@@ -139,7 +145,9 @@ def write_predictions(
 @click.option("--model-path", required=True)
 @click.option("--batch-size", type=int, default=1)
 @click.option(
-    "--beam-width", type=int, help="If specified, beam search is used"
+    "--beam-width",
+    type=int,
+    help="If specified, beam search is used",
 )
 @click.option(
     "--attn/--no-attn",
@@ -147,7 +155,11 @@ def write_predictions(
     default=True,
     help="Use attention (`lstm` only)",
 )
-@click.option("--bidirectional/--no-bidirectional", type=bool, default=True)
+@click.option(
+    "--bidirectional/--no-bidirectional",
+    type=bool,
+    default=True,
+)
 @click.option("--gpu/--no-gpu", default=True)
 def main(
     lang,
@@ -191,44 +203,41 @@ def main(
         beam_width (_type_): _description_
         gpu (_type_): _description_
     """
-    os.makedirs(os.path.dirname(output_path), exist_ok=True)
-    device = util.get_device(gpu)
     # TODO: Do not need to enforce once we have batch beam decoding.
     if beam_width is not None:
         util.log_info("Decoding with beam search; forcing batch size to 1")
         batch_size = 1
     include_features = features_col != 0
-    dataset_cls = datasets.get_dataset_cls(include_features)
-    test_set = dataset_cls(
+    dataset = datasets.get_dataset(
         data_path,
-        tied_vocabulary,
-        source_col,
-        0,  # Target columns unnecessary.
-        source_sep,
-        target_sep,
+        tied_vocabulary=tied_vocabulary,
+        source_col=source_col,
+        target_col=0,  # Target column is ignored; target separator too.
         features_col=features_col,
+        source_sep=source_sep,
         features_sep=features_sep,
     )
-    test_set.load_index(results_path, lang)
-    util.log_info(f"Source vocabulary: {test_set.source_symbol2i}")
-    util.log_info(f"Target vocabulary: {test_set.target_symbol2i}")
-    collator_cls = collators.get_collator_cls(
-        arch, include_features, include_targets=False
+    collator = collators.get_collator(
+        dataset.pad_idx,
+        arch=arch,
+        include_features=include_features,
+        include_targets=False,
     )
-    collator = collator_cls(test_set.pad_idx)
-    data_loader = data.DataLoader(
-        test_set,
+    loader = data.DataLoader(
+        dataset,
         collate_fn=collator,
         batch_size=batch_size,
         shuffle=False,
     )
-    # Model.
+    dataset.load_index(results_path, lang)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     model_cls = models.get_model_cls(arch, attn, include_features)
     util.log_info(f"Loading model from {model_path}")
+    device = util.get_device(gpu)
     model = model_cls.load_from_checkpoint(model_path).to(device)
-    write_predictions(
+    predict(
         model,
-        data_loader,
+        loader,
         output_path,
         arch,
         batch_size,

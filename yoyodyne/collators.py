@@ -210,12 +210,13 @@ class SourceFeaturesTargetCollator(SourceFeaturesCollator):
         return True
 
 
-def get_collator_cls(
-    arch: str, include_features: bool, include_targets: bool
+def get_collator(
+    pad_idx: int, *, arch: str, include_features: bool, include_targets: bool
 ) -> Collator:
     """Collator factory.
 
     Args:
+        pad_idx (int).
         arch (str).
         include_features (bool).
         include_targets (bool).
@@ -224,10 +225,13 @@ def get_collator_cls(
         Collator.
     """
     if include_features and arch in ["pointer_generator_lstm", "transducer"]:
-        return (
+        collator_cls = (
             SourceFeaturesTargetCollator
             if include_targets
             else SourceFeaturesCollator
         )
     else:
-        return SourceTargetCollator if include_targets else SourceCollator
+        collator_cls = (
+            SourceTargetCollator if include_targets else SourceCollator
+        )
+    return collator_cls(pad_idx)

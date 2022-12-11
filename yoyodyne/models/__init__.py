@@ -46,8 +46,6 @@ def get_model_cls(
         "transformer": TransformerEncoderDecoder,
         "lstm": LSTMEncoderDecoderAttention if attn else LSTMEncoderDecoder,
     }
-    if arch in ["lstm", "pointer_generator_lstm", "transformer"]:
-        util.log_info(f"Attention: {attn}")
     try:
         kls = model_fac[arch]
         return kls
