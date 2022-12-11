@@ -18,6 +18,9 @@ from yoyodyne import train, predict
 # TODO(kbg): Can we use GPU instances on CircleCI for this?
 
 
+# Numerical tolerance. There are 100 test examples.
+REL = .01
+
 # Computes the relevant testdata directory.
 TESTDATA = (
     pathlib.Path(__file__).parent
@@ -50,9 +53,9 @@ def get_data_paths(language: str) -> Tuple[str, str, str]:
 )
 def test_bilstm(language, expected_accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, **kwargs)
+    best_model = train.train(train_path, dev_path, features_col=0)
     predict.accuracy(best_model, test_path)
-    assert accuracy == pytest.approx(expected_accuracy, rel=0.001)
+    assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
 
 @pytest.mark.parametrize(
@@ -72,9 +75,9 @@ def test_bilstm(language, expected_accuracy):
 )
 def test_bilstm_attention(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, **kwargs)
+    best_model = train.train(train_path, dev_path, features_col=0)
     predict.accuracy(best_model, test_path)
-    assert accuracy == pytest.approx(expected_accuracy, rel=0.001)
+    assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
 
 @pytest.mark.parametrize(
@@ -94,9 +97,9 @@ def test_bilstm_attention(language, accuracy):
 )
 def test_pointer_generator_lstm(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, **kwargs)
+    best_model = train.train(train_path, dev_path, features_col=0)
     predict.accuracy(best_model, test_path)
-    assert accuracy == pytest.approx(expected_accuracy, rel=0.001)
+    assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
 
 @pytest.mark.parametrize(
@@ -116,9 +119,9 @@ def test_pointer_generator_lstm(language, accuracy):
 )
 def test_transducer(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, **kwargs)
+    best_model = train.train(train_path, dev_path, features_col=0)
     predict.accuracy(best_model, test_path)
-    assert accuracy == pytest.approx(expected_accuracy, rel=0.001)
+    assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
 
 @pytest.mark.parametrize(
@@ -138,9 +141,9 @@ def test_transducer(language, accuracy):
 )
 def test_tranformer(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, **kwargs)
+    best_model = train.train(train_path, dev_path, features_col=0)
     predict.accuracy(best_model, test_path)
-    assert accuracy == pytest.approx(expected_accuracy, rel=0.001)
+    assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
 
 @pytest.mark.parametrize(
@@ -160,6 +163,6 @@ def test_tranformer(language, accuracy):
 )
 def test_unilstm_attention(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, **kwargs)
+    best_model = train.train(train_path, dev_path, features_col=0)
     predict.accuracy(best_model, test_path)
-    assert accuracy == pytest.approx(expected_accuracy, rel=0.001)
+    assert accuracy == pytest.approx(expected_accuracy, rel=REL)
