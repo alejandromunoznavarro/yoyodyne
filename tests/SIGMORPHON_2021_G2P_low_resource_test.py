@@ -13,13 +13,9 @@ import pytest
 
 from yoyodyne import train, predict
 
-# TODO(kbg): This assumes an API we do not have yet. Add it.
-# TODO(kbg0: Add the actual numbers in once we have them.
-# TODO(kbg): Can we use GPU instances on CircleCI for this?
+# TODO(kbg): This assumes an API we do not have yet; add it.
+# TODO(kbg): Add the actual numbers in once they are available.
 
-
-# Numerical tolerance. There are 100 test examples.
-REL = .01
 
 # Computes the relevant testdata directory.
 TESTDATA = (
@@ -27,6 +23,19 @@ TESTDATA = (
     / "testdata"
     / "SIGMORPHON_2021_G2P_low_resource"
 )
+
+
+# Numerical tolerance for accuracy; there are 100 test examples.
+REL = 0.01
+
+# Shared defaults for training.
+SEED = 49
+SOURCE_COL = 1
+TARGET_COL = 2
+FEATURE_COL = 0  # No features are present.
+TIED_VOCABULARY = False  # Let's test it out.
+GPU = False  # TODO(kbg): Can we use GPU instances on CircleCI?
+WANDB = False  # No tracking needed here.
 
 
 def get_data_paths(language: str) -> Tuple[str, str, str]:
@@ -53,7 +62,7 @@ def get_data_paths(language: str) -> Tuple[str, str, str]:
 )
 def test_bilstm(language, expected_accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, features_col=0)
+    best_model = train.train(train_path, dev_path)
     predict.accuracy(best_model, test_path)
     assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
@@ -75,7 +84,7 @@ def test_bilstm(language, expected_accuracy):
 )
 def test_bilstm_attention(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, features_col=0)
+    best_model = train.train(train_path, dev_path)
     predict.accuracy(best_model, test_path)
     assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
@@ -97,7 +106,7 @@ def test_bilstm_attention(language, accuracy):
 )
 def test_pointer_generator_lstm(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, features_col=0)
+    best_model = train.train(train_path, dev_path)
     predict.accuracy(best_model, test_path)
     assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
@@ -119,7 +128,7 @@ def test_pointer_generator_lstm(language, accuracy):
 )
 def test_transducer(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, features_col=0)
+    best_model = train.train(train_path, dev_path)
     predict.accuracy(best_model, test_path)
     assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
@@ -141,7 +150,7 @@ def test_transducer(language, accuracy):
 )
 def test_tranformer(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, features_col=0)
+    best_model = train.train(train_path, dev_path)
     predict.accuracy(best_model, test_path)
     assert accuracy == pytest.approx(expected_accuracy, rel=REL)
 
@@ -163,6 +172,6 @@ def test_tranformer(language, accuracy):
 )
 def test_unilstm_attention(language, accuracy):
     train_path, dev_path, test_path = get_data_paths(language)
-    best_model = train.train(train_path, dev_path, features_col=0)
+    best_model = train.train(train_path, dev_path)
     predict.accuracy(best_model, test_path)
     assert accuracy == pytest.approx(expected_accuracy, rel=REL)
