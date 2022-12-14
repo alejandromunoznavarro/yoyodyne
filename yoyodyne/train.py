@@ -18,7 +18,7 @@ def train(
     # Path arguments.
     train_path: str,
     dev_path: str,
-    model_path: str,
+    model_dir: str,
     *,
     train_from_path: Optional[str] = None,
     # Data format arguments.
@@ -65,8 +65,6 @@ def train(
     wandb: bool = False,
     # Development predictions.
     dev_predictions_path: Optional[str],
-    # Ignored kwargs.
-    **kwargs,
 ) -> str:
     """Performs training, returning the path to the best model.
 
@@ -74,7 +72,7 @@ def train(
         experiment (str).
         train_path (str).
         dev_path (str).
-        model_path (str).
+        model_dir (str).
         train_from_path (str, optional).
         source_col (int).
         target_col (int).
@@ -116,7 +114,6 @@ def train(
         warmup_steps (int).
         wandb (bool).
         dev_predictions_path (str, optional)
-        **kwargs: ignored.
 
     Returns:
         The path to the best model.
@@ -142,7 +139,7 @@ def train(
         train_set.pad_idx,
         arch=arch,
         include_features=include_features,
-        include_targets=True,
+        include_target=True,
     )
     train_loader = data.DataLoader(
         train_set,
@@ -172,7 +169,7 @@ def train(
     device = util.get_device(gpu)
     evaluator = evaluators.Evaluator(device=device)
     # Sets up logger and trainer.
-    logger = [loggers.CSVLogger(model_path, name=experiment)]
+    logger = [loggers.CSVLogger(model_dir, name=experiment)]
     if wandb:
         logger.append(loggers.WandbLogger(project=experiment, log_model="all"))
     # ckp_callback is used later for logging the best checkpoint path.
@@ -206,7 +203,7 @@ def train(
         gradient_clip_val=gradient_clip,
         check_val_every_n_epoch=eval_every,
         enable_checkpointing=True,
-        default_root_dir=model_path,
+        default_root_dir=model_dir,
         callbacks=trainer_callbacks,
         log_every_n_steps=len(train_set) // batch_size,
         num_sanity_val_steps=0,
@@ -300,7 +297,7 @@ def train(
     help="Path to input development data",
 )
 @click.option(
-    "--model-path",
+    "--model-dir",
     type=str,
     required=True,
     help="Path to output directory for models",
@@ -529,7 +526,7 @@ def main(
     # Path arguments.
     train_path,
     dev_path,
-    model_path,
+    model_dir,
     train_from_path,
     # Data format arguments.
     source_col,
@@ -574,9 +571,9 @@ def main(
     warmup_steps,
     wandb,
     # Development predictions.
-    dev_predictions_path: str,
+    dev_predictions_path,
 ):
-    """Trains a sequence-to-sequence network."""
+    """Trains a sequence-to-sequence model."""
     util.log_info("Arguments:")
     for arg, val in click.get_current_context().params.items():
         util.log_info(f"\t{arg}: {val!r}")
@@ -584,7 +581,7 @@ def main(
         experiment,
         train_path,
         dev_path,
-        model_path,
+        model_dir,
         train_from_path=train_from_path,
         source_col=source_col,
         target_col=target_col,

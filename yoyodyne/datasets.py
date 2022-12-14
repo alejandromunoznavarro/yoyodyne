@@ -286,7 +286,7 @@ class DatasetNoFeatures(data.Dataset):
         symbols: bool = True,
         special: bool = True,
     ) -> List[List[str]]:
-        """Given a tensor of source indices, returns a list of characters.
+        """Given a tensor of source indices, returns lists of characters.
 
         Args:
             indices (torch.Tensor): 2d tensor of indices.
@@ -311,7 +311,7 @@ class DatasetNoFeatures(data.Dataset):
         symbols: bool = True,
         special: bool = True,
     ) -> List[List[str]]:
-        """Given a tensor of target indices, returns a list of characters.
+        """Given a tensor of target indices, returns lists of characters.
 
         Args:
             indices (torch.Tensor): 2d tensor of indices.
@@ -560,7 +560,7 @@ class DatasetFeatures(DatasetNoFeatures):
         symbols: bool = True,
         special: bool = True,
     ) -> List[List[str]]:
-        """Given a tensor of source indices, returns a list of characters.
+        """Given a tensor of source indices, returns lists of characters.
 
         Overriding to prevent use of features encoding.
 
@@ -593,7 +593,7 @@ class DatasetFeatures(DatasetNoFeatures):
         symbols: bool = True,
         special: bool = True,
     ) -> List[List[str]]:
-        """Given a tensor of feature indices, returns a list of characters.
+        """Given a tensor of feature indices, returns lists of characters.
 
         This is simply an alias for using decode_source for features.
 

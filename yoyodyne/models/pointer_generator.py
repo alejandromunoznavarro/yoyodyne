@@ -28,7 +28,6 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
     def __init__(self, *args, **kwargs):
         """Initializes the pointer-generator model with an LSTM backend."""
         super().__init__(*args, **kwargs)
-        print("Is this bidirectional?:", self.bidirectional)
         # We use the inherited defaults for the source embeddings/encoder.
         encoder_size = self.hidden_size * self.directions
         self.source_attention = attention.Attention(
