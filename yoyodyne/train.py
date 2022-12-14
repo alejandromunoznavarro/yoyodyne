@@ -24,7 +24,7 @@ def train(
     # Data format arguments.
     source_col: int = 1,
     target_col: int = 2,
-    features_col: int = 3,
+    features_col: int = 0,
     source_sep: str = "",
     target_sep: str = "",
     features_sep: str = "",
@@ -64,9 +64,63 @@ def train(
     warmup_steps: int = 0,
     wandb: bool = False,
     # Development predictions.
-    dev_predictions_path: str,
+    dev_predictions_path: Optional[str],
+    # Ignored kwargs.
+    **kwargs,
 ) -> str:
-    """Performs training, returning the path to the best model."""
+    """Performs training, returning the path to the best model.
+
+    Args:
+        experiment (str).
+        train_path (str).
+        dev_path (str).
+        model_path (str).
+        train_from_path (str, optional).
+        source_col (int).
+        target_col (int).
+        features_col (int).
+        source_sep (str).
+        target_sep (str).
+        features_sep (str).
+        arch (str).
+        attention (bool).
+        attention_heads (int).
+        bidirectional (bool).
+        decoder_layers (int).
+        embedding_size (int).
+        encoder_layers (int).
+        hidden_size (int).
+        max_sequence_length (int).
+        max_decode_length (int).
+        oracle_em_epochs (int).
+        oracle_factor (int).
+        sed_path (str, optional).
+        tied_vocabulary (bool).
+        batch_size (int).
+        beta1 (float).
+        beta2 (float).
+        dataloader_workers (int)
+        dropout (float).
+        max_epochs (int).
+        eval_batch_size (int).
+        eval_every (int).
+        gradient_clip (float, optional).
+        gpu (bool).
+        label_smoothing (float, optional).
+        learning_rate (float)
+        patience (int, optional).
+        optimizer (str)
+        save_top_k (int).
+        scheduler (string, optional).
+        seed (int).
+        warmup_steps (int).
+        wandb (bool).
+        dev_predictions_path (str, optional)
+        **kwargs: ignored.
+
+    Returns:
+        The path to the best model.
+    """
     util.seed(seed)
     # Sets up data sets, collators, and loaders.
     if target_col == 0:
@@ -271,9 +325,9 @@ def train(
 @click.option(
     "--features-col",
     type=int,
-    default=3,
+    default=0,
     help="1-based index for the features column; "
-    "0 indicates the model will not use features",
+    "0 (the default) indicates the model will not use features",
 )
 @click.option(
     "--source-sep",
@@ -443,7 +497,7 @@ def train(
 )
 @click.option(
     "--scheduler",
-    type=click.Choice(["warmupinvsq", None]),
+    type=click.Choice(["warmupinvsqrt", None]),
     default=None,
     help="Name of learning rate scheduler",
 )
@@ -522,6 +576,7 @@ def main(
     # Development predictions.
     dev_predictions_path: str,
 ):
+    """Trains a sequence-to-sequence network."""
     util.log_info("Arguments:")
     for arg, val in click.get_current_context().params.items():
         util.log_info(f"\t{arg}: {val!r}")

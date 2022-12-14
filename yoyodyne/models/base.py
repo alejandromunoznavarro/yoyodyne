@@ -3,7 +3,7 @@
 This also includes init_embeddings, which has to go somewhere.
 """
 
-from typing import Callable, Dict, Tuple, Union
+from typing import Callable, Dict, List, Tuple, Union
 
 import pytorch_lightning as pl
 import torch
@@ -186,13 +186,14 @@ class BaseEncoderDecoder(pl.LightningModule):
         """
         optimizer = self._get_optimizer()
         scheduler = self._get_scheduler(optimizer[0])
-        util.log_info("Optimization details:")
+        util.log_info("Optimizer details:")
         util.log_info(optimizer)
-        util.log_info("Scheduler details:")
-        util.log_info(scheduler)
+        if self.scheduler:
+            util.log_info("Scheduler details:")
+            util.log_info(scheduler)
         return optimizer, scheduler
 
-    def _get_optimizer(self) -> optim.Optimizer:
+    def _get_optimizer(self) -> List[optim.Optimizer]:
         """Factory for selecting the optimizer.
 
         Returns:
@@ -212,20 +213,22 @@ class BaseEncoderDecoder(pl.LightningModule):
             kwargs["betas"] = self.beta1, self.beta2
         return [optimizer(self.parameters(), **kwargs)]
 
-    def _get_scheduler(self, optimizer: optim.Optimizer) -> optim.lr_scheduler:
+    def _get_scheduler(
+        self, optimizer: optim.Optimizer
+    ) -> List[optim.lr_scheduler.LambdaLR]:
         """Factory for selecting the scheduler.
 
         Args:
             optimizer (optim.Optimizer): optimizer.
 
         Returns:
-            optim.lr_scheduler: LR scheduler for training.
+            optim.lr_scheduler.LambdaLR: LR scheduler for training.
         """
         if self.scheduler is None:
             return []
         # TODO: Implement multiple options.
         scheduler_fac = {
-            "warmupinvsqr": schedulers.WarmupInverseSquareRootSchedule
+            "warmupinvsqrt": schedulers.WarmupInverseSquareRootSchedule
         }
         try:
             scheduler = scheduler_fac[self.scheduler](

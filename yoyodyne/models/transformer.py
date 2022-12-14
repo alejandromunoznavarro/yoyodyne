@@ -17,27 +17,31 @@ class Error(Exception):
 class TransformerEncoderDecoder(base.BaseEncoderDecoder):
     """Transformer encoder-decoder."""
 
-    vocab_size: int
-    hidden_size: int
-    d_model: int
-    nhead: int
-    max_seq_len: int
-    enc_layers: int
-    dec_layers: int
-    pad_idx: int
-    optim_name: str
+    # Training arguments
+    attention_heads: int
     beta1: float
     beta2: float
-    warmup_steps: int
-    lr: float
-    evaluator: evaluators.Evaluator
-    scheduler: str
-    start_idx: int
-    end_idx: int
+    decoder_layers: int
     embedding_size: int
+    encoder_layers: int
+    end_idx: int
+    evaluator: evaluators.Evaluator
+    hidden_size: int
+    label_smoothing: Optional[float]
+    learning_rate: float
+    max_decode_length: int
+    max_sequence_length: int
+    optimizer: str
     output_size: int
-    dropout: float
-    dropout_layer: nn.Dropout
+    pad_idx: int
+    scheduler: Optional[str]
+    start_idx: int
+    vocab_size: int
+    warmup_steps: int
+    # Decoding arguments.
+    beam_width: Optional[int]
+    # Components of the module.
+    dropout: nn.Dropout
     source_embeddings: nn.Embedding
     target_embeddings: nn.Embedding
     positional_encoding: positional_encoding.PositionalEncoding
@@ -45,128 +49,101 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
     encoder: nn.TransformerEncoder
     decoder: nn.TransformerDecoder
     classifier: nn.Linear
-    max_decode_len: int
-    beam_width: Optional[int]
-    label_smoothing: Optional[float]
 
     def __init__(
         self,
-        vocab_size,
-        embedding_size,
-        hidden_size,
-        nhead,
-        max_seq_len,
-        output_size,
-        pad_idx,
-        start_idx,
-        end_idx,
-        optim,
+        *,
+        attention_heads,
         beta1,
         beta2,
-        warmup_steps,
-        lr,
-        scheduler,
+        decoder_layers,
+        dropout,
+        embedding_size,
+        encoder_layers,
+        end_idx,
         evaluator,
-        max_decode_len,
-        dropout=0.3,
-        enc_layers=4,
-        dec_layers=4,
-        label_smoothing=None,
+        hidden_size,
+        label_smoothing,
+        learning_rate,
+        max_decode_length,
+        max_sequence_length,
+        optimizer,
+        output_size,
+        pad_idx,
+        scheduler,
+        start_idx,
+        vocab_size,
+        warmup_steps,
         beam_width=None,
         **kwargs,
     ):
         """Initializes the encoder-decoder with attention.
 
         Args:
-            vocab_size (int).
-            embedding_size (int).
-            hidden_size (int).
-            nhead (int).
-            max_seq_len (int).
-            output_size (int).
-            pad_idx (int).
-            start_idx (int).
-            end_idx (int).
-            optim (str).
-            beta1 (float).
-            beta2 (float).
-            warmup_steps (int).
-            lr (float).
-            evaluator (evaluators.Evaluator).
-            scheduler (str).
-            max_decode_len (int).
-            dropout (float, optional).
-            enc_layers (int, optional).
-            dec_layers (int, optional).
-            label_smoothing (float, optional).
-            beam_width (int, optional): if specified, beam search is used
-                during decoding.
             **kwargs: ignored.
         """
-        super().__init__()
-        self.vocab_size = vocab_size
-        self.hidden_size = hidden_size
-        self.d_model = embedding_size
-        self.nhead = nhead
-        self.max_seq_len = max_seq_len
-        self.enc_layers = enc_layers
-        self.dec_layers = dec_layers
-        self.pad_idx = pad_idx
-        self.optim_name = optim
+        self.attention_heads = attention_heads
         self.beta1 = beta1
         self.beta2 = beta2
-        self.warmup_steps = warmup_steps
-        self.lr = lr
+        self.decoder_layers = decoder_layers
+        self.embedding_size = embedding_size
+        self.encoder_layers = encoder_layers
+        self.end_idx = end_idx
         self.evaluator = evaluator
+        self.hidden_size = hidden_size
+        self.label_smoothing = label_smoothing
+        self.learning_rate = learning_rate
+        self.max_decode_length = max_decode_length
+        self.max_sequence_length = max_sequence_length
+        self.optimizer = optimizer
+        self.output_size = output_size
+        self.pad_idx = pad_idx
         self.scheduler = scheduler
         self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.embedding_size = embedding_size
-        self.output_size = output_size
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(p=self.dropout, inplace=False)
+        self.vocab_size = vocab_size
+        self.warmup_steps = warmup_steps
+        self.beam_width = beam_width
+        super().__init__()
+        self.dropout = nn.Dropout(p=dropout, inplace=False)
         self.source_embeddings = self.init_embeddings(
-            vocab_size, self.d_model, self.pad_idx
+            vocab_size, self.embedding_size, self.pad_idx
         )
         self.target_embeddings = self.init_embeddings(
-            output_size, self.d_model, self.pad_idx
+            output_size, self.embedding_size, self.pad_idx
         )
         self.positional_encoding = positional_encoding.PositionalEncoding(
-            self.d_model, self.pad_idx, self.max_seq_len
+            self.embedding_size, self.pad_idx, self.max_sequence_length
         )
         self.log_softmax = nn.LogSoftmax(dim=2)
-        enc_layer = nn.TransformerEncoderLayer(
-            d_model=self.d_model,
+        encoder_layer = nn.TransformerEncoderLayer(
+            d_model=self.embedding_size,
             dim_feedforward=self.hidden_size,
-            nhead=self.nhead,
-            dropout=self.dropout,
+            nhead=self.attention_heads,
+            dropout=dropout,
             activation="relu",
             norm_first=True,
             batch_first=True,
         )
         self.encoder = nn.TransformerEncoder(
-            encoder_layer=enc_layer,
-            num_layers=self.enc_layers,
-            norm=nn.LayerNorm(self.d_model),
+            encoder_layer=encoder_layer,
+            num_layers=self.encoder_layers,
+            norm=nn.LayerNorm(self.embedding_size),
         )
-        dec_layer = nn.TransformerDecoderLayer(
-            d_model=self.d_model,
+        decoder_layer = nn.TransformerDecoderLayer(
+            d_model=self.embedding_size,
             dim_feedforward=self.hidden_size,
-            nhead=self.nhead,
-            dropout=self.dropout,
+            nhead=self.attention_heads,
+            dropout=dropout,
             activation="relu",
             norm_first=True,
             batch_first=True,
         )
         self.decoder = nn.TransformerDecoder(
-            decoder_layer=dec_layer,
-            num_layers=self.dec_layers,
-            norm=nn.LayerNorm(self.d_model),
+            decoder_layer=decoder_layer,
+            num_layers=self.decoder_layers,
+            norm=nn.LayerNorm(self.embedding_size),
         )
-        self.classifier = nn.Linear(self.d_model, output_size)
-        self.max_decode_len = max_decode_len
-        self.label_smoothing = label_smoothing
-        self.beam_width = beam_width
+        self.classifier = nn.Linear(self.embedding_size, output_size)
         self.loss_func = self.get_loss_func("mean")
         # Saves hyperparameters for PL checkpointing.
         self.save_hyperparameters()
@@ -200,10 +177,10 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
                 B x seq_len x embed_dim.
         """
         word_embedding = self.source_embeddings(symbols) * math.sqrt(
-            self.d_model
+            self.embedding_size
         )
         positional_embedding = self.positional_encoding(symbols)
-        out = self.dropout_layer(word_embedding + positional_embedding)
+        out = self.dropout(word_embedding + positional_embedding)
         return out
 
     def target_embed(self, symbols: torch.Tensor) -> torch.Tensor:
@@ -218,10 +195,10 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
                 B x seq_len x embed_dim.
         """
         word_embedding = self.target_embeddings(symbols) * math.sqrt(
-            self.d_model
+            self.embedding_size
         )
         positional_embedding = self.positional_encoding(symbols)
-        out = self.dropout_layer(word_embedding + positional_embedding)
+        out = self.dropout(word_embedding + positional_embedding)
         return out
 
     def encode(
@@ -266,7 +243,7 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
         causal_mask = self.generate_square_subsequent_mask(target_seq_len).to(
             self.device
         )
-        # -> B x seq_len x d_model
+        # -> B x seq_len x embedding_size
         dec_hidden = self.decoder(
             target_embedding,
             enc_hidden,
@@ -294,7 +271,7 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
         ]
         # Tracking when each sequence has decoded an EOS.
         finished = torch.zeros(batch_size, device=self.device)
-        for _ in range(self.max_decode_len):
+        for _ in range(self.max_decode_length):
             target_tensor = torch.stack(preds, dim=1)
             # Uses a dummy mask of all ones.
             target_mask = torch.ones_like(
@@ -310,7 +287,7 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
             pred = self._get_predicted(last_output.unsqueeze(1))
             preds.append(pred.squeeze(1))
             # Updates to track which sequences have decoded an EOS.
-            finished = torch.logical_or(finished, (preds[-1] == self.end_idx))
+            finished = torch.logical_or(finished, preds[-1] == self.end_idx)
             # Break when all batches predicted an EOS symbol.
             if finished.all():
                 break
@@ -365,9 +342,7 @@ class TransformerEncoderDecoder(base.BaseEncoderDecoder):
         Returns:
             torch.Tensor: mask of shape length x length.
         """
-        return torch.triu(
-            torch.full((length, length), float("-inf")), diagonal=1
-        )
+        return torch.triu(torch.full((length, length), -math.inf), diagonal=1)
 
 
 class FeatureInvariantTransformerEncoderDecoder(TransformerEncoderDecoder):
@@ -384,7 +359,7 @@ class FeatureInvariantTransformerEncoderDecoder(TransformerEncoderDecoder):
 
     def __init__(self, *args, features_idx, **kwargs):
         super().__init__(*args, **kwargs)
-        # For distinguishing features vs character.
+        # Distinguishes source vs. feature symbols.
         self.features_idx = features_idx
         self.type_embedding = self.init_embeddings(
             2, self.embedding_size, self.pad_idx
@@ -406,16 +381,16 @@ class FeatureInvariantTransformerEncoderDecoder(TransformerEncoderDecoder):
         # Distinguishes features and chars.
         char_mask = (symbols < self.features_idx).long()
         # 1 or 0.
-        type_embedding = math.sqrt(self.d_model) * self.type_embedding(
+        type_embedding = math.sqrt(self.embedding_size) * self.type_embedding(
             char_mask
         )
         word_embedding = self.source_embeddings(symbols) * math.sqrt(
-            self.d_model
+            self.embedding_size
         )
         positional_embedding = self.positional_encoding(
             symbols, mask=char_mask
         )
-        out = self.dropout_layer(
+        out = self.dropout(
             word_embedding + positional_embedding + type_embedding
         )
         return out

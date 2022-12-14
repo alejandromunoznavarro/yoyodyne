@@ -30,7 +30,6 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
     encoder_layers: int
     end_idx: int
     evaluator: evaluators.Evaluator
-    features_idx: int
     features_vocab_size: int
     hidden_size: int
     label_smoothing: Optional[float]
@@ -69,7 +68,6 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         encoder_layers,
         end_idx,
         evaluator,
-        features_idx,
         features_vocab_size,
         hidden_size,
         label_smoothing,
@@ -85,8 +83,11 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         beam_width=None,
         **kwargs,
     ):
-        """Initializes the encoder-decoder without attention."""
-        super().__init__()
+        """Initializes the encoder-decoder without attention.
+
+        Args:
+            **kwargs: ignored.
+        """
         self.beta1 = beta1
         self.beta2 = beta2
         self.bidirectional = bidirectional
@@ -107,6 +108,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         self.warmup_steps = warmup_steps
         self.vocab_size = vocab_size
         self.beam_width = beam_width
+        super().__init__()
         self.dropout = nn.Dropout(dropout, inplace=False)
         self.source_embeddings = self.init_embeddings(
             self.vocab_size, self.embedding_size, self.pad_idx
