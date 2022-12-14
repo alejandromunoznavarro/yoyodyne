@@ -1,4 +1,5 @@
-# Yoyodyne 🪀
+Yoyodyne 🪀
+==========
 
 [![PyPI
 version](https://badge.fury.io/py/yoyodyne.svg)](https://pypi.org/project/yoyodyne)
@@ -17,7 +18,8 @@ alignments are roughly monotonic (e.g., `transducer`) and/or where source and
 target vocabularies are not disjoint and substrings of the source are copied
 into the target (e.g., `pointer_generator_lstm`).
 
-## Philosophy
+Philosophy
+----------
 
 Yoyodyne is inspired by [FairSeq](https://github.com/facebookresearch/fairseq)
 but differs on several key points of design:
@@ -25,16 +27,17 @@ but differs on several key points of design:
 -   It is for small-vocabulary sequence-to-sequence generation, and therefore
     includes no affordances for machine translation or language modeling.
     Because of this:
-    -  It has no plugin interface and the architectures provided are intended
-       to be reasonably exhaustive.
-    -  There is little need for data preprocessing; it works with TSV files.
+    -   It has no plugin interface and the architectures provided are intended
+        to be reasonably exhaustive.
+    -   There is little need for data preprocessing; it works with TSV files.
 -   It has support for using features to condition decoding, with
     architecture-specific code to handle this feature information.
--   🚧 UNDER CONSTRUCTION 🚧: It has exhaustive test suites.
+-   It has detailed test suites.
 -   🚧 UNDER CONSTRUCTION 🚧: It has performance benchmark.
 -   🚧 UNDER CONSTRUCTION 🚧: Releases are made regularly.
 
-## Install
+Install
+-------
 
 First install dependencies:
 
@@ -42,7 +45,7 @@ First install dependencies:
 
 Then install:
 
-    python setup.py install
+    pip install .
 
 Or:
 
@@ -55,13 +58,11 @@ update the code. It can then be imported like a regular Python module:
 import yoyodyne
 ```
 
-## Usage
+Usage
+-----
 
-For examples, see [`experiments`](experiments). See
-[`train.py`](yoyodyne/train.py) and [`predict.py`](yoyodyne/predict.py) for all
-model options.
-
-## Architectures
+See [`train.py`](yoyodyne/train.py) and [`predict.py`](yoyodyne/predict.py) for
+all model options.
 
 The user specifies the model using the `--arch` flag (and in some cases
 additional flags).
@@ -71,9 +72,9 @@ additional flags).
     It may be superior to the vanilla transformer when using features.
 -   `lstm`: This is an LSTM encoder-decoder, with the initial hidden state
     treated as a learned parameter. By default, the encoder is connected to the
-    decoder by an attention mechanism; one can disable this (with `--no-attn`),
-    in which case the last non-padding hidden state of the encoder is
-    concatenated with the decoder hidden state.
+    decoder by an attention mechanism; one can disable this (with
+    `--no-attention`), in which case the last non-padding hidden state of the
+    encoder is concatenated with the decoder hidden state.
 -   `pointer_generator_lstm`: This is an attentive pointer-generator with an
     LSTM backend. Since this model contains a copy mechanism, it may be superior
     to the `lstm` when the input and output vocabularies overlap significantly.
@@ -86,54 +87,63 @@ additional flags).
     monotonic and when input and output vocabularies overlap significantly.
 -   `transformer`: This is a transformer encoder-decoder with positional
     encoding and layer normalization. The user may wish to specify the number of
-    attention heads (with `--nheads`; default: 4).
+    attention heads with `--attention-heads` (default: 4).
 
 For all models, the user may also wish to specify:
 
--   `--dec-layers` (default: 1): number of decoder layers
+-   `--decoder-layers` (default: 1): number of decoder layers
 -   `--embedding` (default: 128): embedding size
--   `--enc-layers` (default: 1): number of encoder layers
--   `--hidden-size` (default: 256): hidden layer size
+-   `--encoder-layers` (default: 1): number of encoder layers
+-   `--hidden-size` (default: 512): hidden layer size
 
 By default, the `lstm`, `pointer_generator_lstm`, and `transducer` models use an
 LSTM bidirectional encoder. One can disable this with the `--no-bidirectional`
 flag.
 
-## Training options
+Training options
+----------------
 
--   `--batch-size` (default: 16)
+-   `--batch-size` (default: 128)
 -   `--beta1` (default: .9): $\beta_1$ hyperparameter for the Adam optimizer
     (`--optimizer adam`)
--   `--beta2` (default: .99): $\beta_2$ hyperparameter for the Adam optimizer
+-   `--beta2` (default: .999): $\beta_2$ hyperparameter for the Adam optimizer
     (`--optimizer adam`)
--   `--dropout` (default: .1): dropout probability
--   `--epochs` (default: 20)
--   `--gradient-clip` (default: 0.0)
+-   `--dropout` (default: .2): dropout probability
+-   `--max-epochs` (default: 40)
+-   `--gradient-clip` (default: not enabled)
 -   `--label-smoothing` (default: not enabled)
--   `--learning-rate` (required)
--   `--lr-scheduler` (default: not enabled)
--   `--optimizer` (default: "adadelta")
+-   `--learning-rate` (default: .001)
+-   `--scheduler` (default: not enabled)
+-   `--seed` (default: current time)
+-   `--optimizer` (default: "adam")
 -   `--patience` (default: not enabled)
 -   `--wandb` (default: False): enables [Weights &
     Biases](https://wandb.ai/site) tracking
 -   `--warmup-steps` (default: 1): warm-up parameter for a linear warm-up
-    followed by inverse square root decay schedule (only valid with
-    `--lr-scheduler warmupinvsq`)
+    followed by inverse square root decay schedule (with
+    `--scheduler warmupinvsq`)
 
-## Data format
+Data format
+-----------
 
-The default data format is based on the SIGMORPHON 2017 shared tasks:
+All data files are ordinary TSV files. By default, a two-column format is
+assumed:
+
+    source  target
+
+If there is an additional feature column used to condition predictions, one
+simply specifies its (base-1) index using `--feature-col`. For instance, for the
+SIGMORPHON 2017 shared task format:
 
     source   target    feat1;feat2;...
 
-That is, the first column is the source (a lemma), the second is the target (the
-inflection), and the third contains semi-colon delimited feature strings.
+the source column is the lemma, the target column is the inflection, and the
+third column contains semicolon-delimited features trings. Thus one simply needs
+to specify `--feature-col 3`.
 
 For the SIGMORPHON 2016 shared task data format:
 
     source   feat1,feat2,...    target
 
-one instead specifies `--target-col 3 --features-col 2 --features-sep ,`
-
-Finally, to perform transductions without features (whether or not a feature
-column exists in the data), one specifies `--features-col 0`.
+in which the features are the second column and the feature separator is comma,
+one instead specifies `--target-col 3 --features-col 2 --features-sep ,`.
