@@ -4,7 +4,7 @@ from yoyodyne import collators
 
 
 @pytest.mark.parametrize(
-    "arch, include_features, include_targets, expected_cls",
+    "arch, include_features, include_target, expected_cls",
     [
         (
             "feature_invariant_transformer",
@@ -51,11 +51,11 @@ from yoyodyne import collators
         ("transformer", False, False, collators.SourceCollator),
     ],
 )
-def test_get_collator(arch, include_features, include_targets, expected_cls):
+def test_get_collator(arch, include_features, include_target, expected_cls):
     collator = collators.get_collator(
         1,  # pad_idx, but it doesn't matter here.
         arch=arch,
         include_features=include_features,
-        include_targets=include_targets,
+        include_target=include_target,
     )
     assert type(collator) is expected_cls

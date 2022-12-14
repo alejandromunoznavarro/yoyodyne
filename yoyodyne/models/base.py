@@ -224,7 +224,7 @@ class BaseEncoderDecoder(pl.LightningModule):
         Returns:
             optim.lr_scheduler.LambdaLR: LR scheduler for training.
         """
-        if self.scheduler is None:
+        if not self.scheduler:
             return []
         # TODO: Implement multiple options.
         scheduler_fac = {

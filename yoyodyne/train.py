@@ -39,7 +39,7 @@ def train(
     hidden_size: int = 512,
     max_sequence_length: int = 128,
     max_decode_length: int = 128,
-    oracle_em_epochs: int = 0,
+    oracle_em_epochs: int = 5,
     oracle_factor: int = 1,
     sed_path: Optional[str] = None,
     tied_vocabulary: bool = True,
@@ -51,7 +51,7 @@ def train(
     dropout: float = 0.2,
     max_epochs: int = 40,
     eval_batch_size: int = 128,
-    eval_every: int = 5,
+    eval_every: int = 2,
     gradient_clip: Optional[float] = None,
     gpu: bool = True,
     label_smoothing: Optional[float] = None,
@@ -59,12 +59,12 @@ def train(
     patience: Optional[int] = 0,
     optimizer: str = "adam",
     save_top_k: int = 1,
-    scheduler: Optional[str] = None,
+    scheduler: str = "",
     seed: int = time.time_ns(),
     warmup_steps: int = 0,
     wandb: bool = False,
     # Development predictions.
-    dev_predictions_path: Optional[str],
+    dev_predictions_path: Optional[str] = None,
 ) -> str:
     """Performs training, returning the path to the best model.
 
@@ -109,7 +109,7 @@ def train(
         patience (int, optional).
         optimizer (str)
         save_top_k (int).
-        scheduler (string, optional).
+        scheduler (string).
         seed (int).
         warmup_steps (int).
         wandb (bool).
@@ -407,7 +407,7 @@ def train(
 @click.option(
     "--oracle-em-epochs",
     type=int,
-    default=0,
+    default=5,
     help="Number of EM epochs "
     "(transducer architecture only; ignored otherwise)",
 )
@@ -455,7 +455,7 @@ def train(
     help="Batch size for evaluation",
 )
 @click.option(
-    "--eval-every", type=int, default=5, help="Number of epochs per evaluation"
+    "--eval-every", type=int, default=2, help="Number of epochs per evaluation"
 )
 @click.option(
     "--gradient-clip",
@@ -494,9 +494,9 @@ def train(
 )
 @click.option(
     "--scheduler",
-    type=click.Choice(["warmupinvsqrt", None]),
-    default=None,
-    help="Name of learning rate scheduler",
+    type=click.Choice(["warmupinvsqrt", ""]),
+    default="",
+    help="Optional: learning rate scheduler",
 )
 @click.option(
     "--seed",
