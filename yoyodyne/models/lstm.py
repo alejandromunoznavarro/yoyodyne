@@ -20,111 +20,94 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
     We achieve this by concatenating the last (non-padding) hidden state of
     the encoder to the decoder hidden state."""
 
-    vocab_size: int
-    enc_layers: int
-    dec_layers: int
-    pad_idx: int
-    optim_name: str
+    # Training arguments.
     beta1: float
     beta2: float
-    warmup_steps: int
-    lr: int
-    evaluator: evaluators.Evaluator
-    scheduler: str
-    start_idx: int
-    end_idx: int
-    embedding_size: int
     bidirectional: bool
-    num_directions: int
+    decoder_layers: int
     dropout: float
-    dropout_layer: nn.Dropout
+    embedding_size: int
+    encoder_layers: int
+    end_idx: int
+    evaluator: evaluators.Evaluator
+    features_idx: int
+    features_vocab_size: int
     hidden_size: int
+    label_smoothing: Optional[float]
+    learning_rate: float
+    max_decode_length: int
+    optimizer: str
     output_size: int
+    pad_idx: int
+    scheduler: Optional[str]
+    start_idx: int
+    vocab_size: int
+    warmup_steps: int
+    # Decoding arguments.
+    beam_width: Optional[int]
+    # Components of the module.
+    classifier: nn.Linear
+    c0: nn.Parameter
+    decoder: nn.LSTM
+    dropout: nn.Dropout
+    encoder: nn.LSTM
+    hidden_size: int
+    h0: nn.Parameter
     source_embeddings: nn.Embedding
     target_embeddings: nn.Embedding
-    encoder: nn.LSTM
-    h0: nn.Parameter
-    c0: nn.Parameter
-    max_decode_len: int
-    decoder: nn.LSTM
-    classifier: nn.Linear
     log_softmax: nn.LogSoftmax
-    label_smoothing: Optional[float]
-    beam_width: Optional[int]
 
     def __init__(
         self,
-        vocab_size,
-        embedding_size,
-        hidden_size,
-        output_size,
-        pad_idx,
-        start_idx,
-        end_idx,
-        optim,
+        *,
         beta1,
         beta2,
-        warmup_steps,
-        lr,
-        scheduler,
+        bidirectional,
+        decoder_layers,
+        dropout,
+        embedding_size,
+        encoder_layers,
+        end_idx,
         evaluator,
-        max_decode_len,
-        dropout=0.1,
-        enc_layers=2,
-        dec_layers=2,
-        bidirectional=True,
-        label_smoothing=None,
+        features_idx,
+        features_vocab_size,
+        hidden_size,
+        label_smoothing,
+        learning_rate,
+        max_decode_length,
+        optimizer,
+        output_size,
+        pad_idx,
+        scheduler,
+        start_idx,
+        vocab_size,
+        warmup_steps,
         beam_width=None,
         **kwargs,
     ):
-        """Initializes the encoder-decoder without attention.
-
-        Args:
-            vocab_size (int).
-            embedding_size (int).
-            hidden_size (int).
-            output_size (int).
-            pad_idx (int).
-            start_idx (int).
-            end_idx (int).
-            optim (str).
-            beta1 (float).
-            beta2 (float).
-            warmup_steps (int).
-            lr (float).
-            evaluator (evaluators.Evaluator).
-            scheduler (str).
-            max_decode_len (int).
-            dropout (float, optional).
-            enc_layers (int, optional).
-            dec_layers (int, optional).
-            bidirectional (bool, optional).
-            label_smoothing (float, optional).
-            beam_width (int, optional): if specified, beam search is used
-                during decoding.
-            **kwargs: ignored.
-        """
+        """Initializes the encoder-decoder without attention."""
         super().__init__()
-        self.vocab_size = vocab_size
-        self.enc_layers = enc_layers
-        self.dec_layers = dec_layers
-        self.pad_idx = pad_idx
-        self.optim_name = optim
         self.beta1 = beta1
         self.beta2 = beta2
-        self.warmup_steps = warmup_steps
-        self.lr = lr
+        self.bidirectional = bidirectional
+        self.decoder_layers = decoder_layers
+        self.embedding_size = embedding_size
+        self.encoder_layers = encoder_layers
+        self.end_idx = end_idx
         self.evaluator = evaluator
+        self.hidden_size = hidden_size
+        self.label_smoothing = label_smoothing
+        self.learning_rate = learning_rate
+        self.max_decode_length = max_decode_length
+        self.optimizer = optimizer
+        self.output_size = output_size
+        self.pad_idx = pad_idx
         self.scheduler = scheduler
         self.start_idx = start_idx
-        self.end_idx = end_idx
-        self.embedding_size = embedding_size
-        self.bidirectional = bidirectional
-        self.num_directions = 2 if self.bidirectional else 1
-        self.dropout = dropout
-        self.dropout_layer = nn.Dropout(p=self.dropout, inplace=False)
-        self.hidden_size = hidden_size
-        self.output_size = output_size
+        self.warmup_steps = warmup_steps
+        self.vocab_size = vocab_size
+        self.beam_width = beam_width
+        self.dropout = nn.Dropout(dropout, inplace=False)
         self.source_embeddings = self.init_embeddings(
             self.vocab_size, self.embedding_size, self.pad_idx
         )
@@ -132,29 +115,26 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
             self.output_size, self.embedding_size, self.pad_idx
         )
         self.encoder = nn.LSTM(
-            self.embedding_size,
+            embedding_size,
             self.hidden_size,
-            num_layers=enc_layers,
-            dropout=dropout,
+            num_layers=self.encoder_layers,
+            dropout=dropout if self.encoder_layers > 1 else 0.0,
             batch_first=True,
             bidirectional=self.bidirectional,
         )
-        enc_size = self.hidden_size * self.num_directions
         # Initial hidden state whose parameters are shared across all examples.
         self.h0 = nn.Parameter(torch.rand(self.hidden_size))
         self.c0 = nn.Parameter(torch.rand(self.hidden_size))
-        self.max_decode_len = max_decode_len
+        self.max_decode_length = max_decode_length
         self.decoder = nn.LSTM(
-            enc_size + self.embedding_size,
+            hidden_size * self.directions + self.embedding_size,
             self.hidden_size,
-            dropout=self.dropout,
-            num_layers=self.dec_layers,
+            num_layers=self.decoder_layers,
+            dropout=dropout if self.decoder_layers > 1 else 0.0,
             batch_first=True,
         )
         self.classifier = nn.Linear(self.hidden_size, output_size)
         self.log_softmax = nn.LogSoftmax(dim=2)
-        self.label_smoothing = label_smoothing
-        self.beam_width = beam_width
         self.loss_func = self.get_loss_func("mean")
         # Saves hyperparameters for PL checkpointing.
         self.save_hyperparameters()
@@ -176,6 +156,10 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
             num_embeddings, embedding_size, pad_idx
         )
 
+    @property
+    def directions(self) -> int:
+        return 2 if self.bidirectional else 1
+
     def encode(
         self, source: torch.Tensor, mask: torch.Tensor
     ) -> Tuple[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
@@ -191,7 +175,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
                 encoded timesteps, and the LSTM h0 and c0 cells.
         """
         embedded = self.source_embeddings(source)
-        embedded = self.dropout_layer(embedded)
+        embedded = self.dropout(embedded)
         # Packs embedded source symbols into a PackedSequence.
         lens = (mask == 0).sum(dim=1).to("cpu")
         packed = nn.utils.rnn.pack_padded_sequence(
@@ -229,7 +213,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
             Tuple[torch.Tensor, torch.Tensor]: tuple of scores and hiddens.
         """
         embedded = self.target_embeddings(symbol)
-        embedded = self.dropout_layer(embedded)
+        embedded = self.dropout(embedded)
         # -> 1 x B x decoder_dim.
         last_h0, last_c0 = last_hiddens
         # Get the index of the last unmasked tensor.
@@ -248,7 +232,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         output, hiddens = self.decoder(
             torch.cat((embedded, last_enc_out), 2), (last_h0, last_c0)
         )
-        output = self.dropout_layer(output)
+        output = self.dropout(output)
         # Classifies into output vocab.
         # -> B x 1 x output_size.
         output = self.classifier(output)
@@ -271,8 +255,8 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
                 initialization.
         """
         return (
-            self.h0.repeat(self.enc_layers, batch_size, 1),
-            self.c0.repeat(self.enc_layers, batch_size, 1),
+            self.h0.repeat(self.encoder_layers, batch_size, 1),
+            self.c0.repeat(self.encoder_layers, batch_size, 1),
         )
 
     def decode(
@@ -310,7 +294,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         )
         preds = []
         num_steps = (
-            target.size(1) if target is not None else self.max_decode_len
+            target.size(1) if target is not None else self.max_decode_length
         )
         # Tracks when each sequence has decoded an EOS.
         finished = torch.zeros(batch_size).to(self.device)
@@ -330,7 +314,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
                 decoder_input = self._get_predicted(output)
                 # Updates to track which sequences have decoded an EOS.
                 finished = torch.logical_or(
-                    finished, (decoder_input == self.end_idx)
+                    finished, decoder_input == self.end_idx
                 )
                 # Breaks when all batches predicted an EOS symbol.
                 if finished.all():
@@ -343,11 +327,10 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         batch_size: int,
         enc_mask: torch.Tensor,
         enc_out: torch.Tensor,
-        beam_width: int,
         n: int = 1,
         return_confidences: bool = False,
     ) -> Union[Tuple[List, List], List]:
-        """Beam search with beam_width.
+        """Beam search.
 
         Note that we assume batch size is 1.
 
@@ -355,7 +338,6 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
             batch_size (int).
             enc_mask (torch.Tensor).
             enc_out (torch.Tensor): encoded inputs.
-            beam_width (int): size of the beam.
             n (int): number of hypotheses to return.
             return_confidences (bool, optional): additionally return the
                 likelihood of each hypothesis.
@@ -372,7 +354,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         decoder_hiddens = self.init_hiddens(enc_out.size(0))
         # log likelihood, last decoded idx, all likelihoods,  hiddens tensor.
         histories = [[0.0, [self.start_idx], [0.0], decoder_hiddens]]
-        for t in range(self.max_decode_len):
+        for t in range(self.max_decode_length):
             # List that stores the heap of the top beam_width elements from all
             # beam_width x output_size possibilities
             likelihoods = []
@@ -433,7 +415,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
                         cl = char_likelihoods + [prob]
                     else:
                         cl = char_likelihoods
-                    if len(hypotheses) < beam_width:
+                    if len(hypotheses) < self.beam_width:
                         fields = [
                             beam_likelihood + prob,
                             beam_idxs + [j],
@@ -450,7 +432,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
                         ]
                         heapq.heappushpop(hypotheses, fields)
             # Takes the top beam hypotheses from the heap.
-            histories = heapq.nlargest(beam_width, hypotheses)
+            histories = heapq.nlargest(self.beam_width, hypotheses)
             # If the top n hypotheses are full sequences, break.
             if all([h[1][-1] == self.end_idx for h in histories]):
                 break
@@ -485,9 +467,7 @@ class LSTMEncoderDecoder(base.BaseEncoderDecoder):
         batch_size = source.size(0)
         enc_out, _ = self.encode(source, source_mask)
         if self.beam_width is not None and self.beam_width > 1:
-            preds = self.beam_decode(
-                batch_size, source_mask, enc_out, beam_width=self.beam_width
-            )
+            preds = self.beam_decode(batch_size, source_mask, enc_out)
         else:
             preds = self.decode(batch_size, source_mask, enc_out, target)
         # -> B x output_size x seq_len.
@@ -503,8 +483,10 @@ class LSTMEncoderDecoderAttention(LSTMEncoderDecoder):
     def __init__(self, *args, **kwargs):
         """Initializes the encoder-decoder with attention."""
         super().__init__(*args, **kwargs)
-        enc_size = self.hidden_size * self.num_directions
-        self.attention = attention.Attention(enc_size, self.hidden_size)
+        self.attention = attention.Attention(
+            self.hidden_size * self.directions,
+            self.hidden_size,
+        )
 
     def decode_step(
         self,
@@ -530,14 +512,14 @@ class LSTMEncoderDecoderAttention(LSTMEncoderDecoder):
                 and the previous hidden states from the decoder LSTM.
         """
         embedded = self.target_embeddings(symbol)
-        embedded = self.dropout_layer(embedded)
+        embedded = self.dropout(embedded)
         # -> 1 x B x decoder_dim.
         last_h0, last_c0 = last_hiddens
         context, _ = self.attention(last_h0.transpose(0, 1), enc_out, enc_mask)
         output, hiddens = self.decoder(
             torch.cat((embedded, context), 2), (last_h0, last_c0)
         )
-        output = self.dropout_layer(output)
+        output = self.dropout(output)
         # Classifies into output vocab.
         # -> B x 1 x output_size
         output = self.classifier(output)

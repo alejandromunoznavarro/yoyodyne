@@ -2,7 +2,7 @@
 
 import os
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 
 import click
 import pytorch_lightning as pl
@@ -29,50 +29,51 @@ def train(
     target_sep: str = "",
     features_sep: str = "",
     # Architecture arguments.
-    arch: str = "lstm", 
+    arch: str = "lstm",
     attention: bool = True,
+    attention_heads: int = 4,
     bidirectional: bool = True,
-    dec_layers: int = 1,
+    decoder_layers: int = 1,
     embedding_size: int = 128,
-    enc_layers: int = 1,
+    encoder_layers: int = 1,
     hidden_size: int = 512,
-    max_seq_length: int = 128,
-    max_dec_length: int = 128,
-    nhead: int = 4,
+    max_sequence_length: int = 128,
+    max_decode_length: int = 128,
+    oracle_em_epochs: int = 0,
+    oracle_factor: int = 1,
+    sed_path: Optional[str] = None,
     tied_vocabulary: bool = True,
     # Training arguments.
     batch_size: int = 128,
     beta1: float = 0.9,
     beta2: float = 0.999,
     dataloader_workers: int = 1,
-    dropout: float = 0.3,
-    epochs: int = 20,
+    dropout: float = 0.2,
+    max_epochs: int = 40,
     eval_batch_size: int = 128,
     eval_every: int = 5,
-    gradient_clip: float = 0.0,
+    gradient_clip: Optional[float] = None,
     gpu: bool = True,
     label_smoothing: Optional[float] = None,
-    learning_rate: float = 1.0,
-    lr_scheduler: Optional[str] = None,
+    learning_rate: float = 0.001,
     patience: Optional[int] = 0,
-    optimizer: str = "adadelta",
+    optimizer: str = "adam",
     save_top_k: int = 1,
+    scheduler: Optional[str] = None,
     seed: int = time.time_ns(),
-    wandb: bool = False,
     warmup_steps: int = 0,
-    # Training arguments specific to the transducer.
-    oracle_em_epochs: int = 0,
-    oracle_factor: int = 1,
-    sed_path: Optional[str] = None,
+    wandb: bool = False,
+    # Development predictions.
+    dev_predictions_path: str,
 ) -> str:
-    """Performs training, returning the path to the bset model."""
+    """Performs training, returning the path to the best model."""
     util.seed(seed)
     # Sets up data sets, collators, and loaders.
     if target_col == 0:
         raise datasets.Error("target_col must be specified for training")
     include_features = features_col != 0
     train_set = datasets.get_dataset(
-        train_data_path,
+        train_path,
         tied_vocabulary=tied_vocabulary,
         source_col=source_col,
         target_col=target_col,
@@ -97,7 +98,7 @@ def train(
         num_workers=dataloader_workers,
     )
     dev_set = datasets.get_dataset(
-        dev_data_path,
+        dev_path,
         tied_vocabulary=tied_vocabulary,
         source_col=source_col,
         target_col=target_col,
@@ -117,7 +118,7 @@ def train(
     device = util.get_device(gpu)
     evaluator = evaluators.Evaluator(device=device)
     # Sets up logger and trainer.
-    logger = [loggers.CSVLogger(output_path, name=experiment)]
+    logger = [loggers.CSVLogger(model_path, name=experiment)]
     if wandb:
         logger.append(loggers.WandbLogger(project=experiment, log_model="all"))
     # ckp_callback is used later for logging the best checkpoint path.
@@ -127,9 +128,9 @@ def train(
         mode="max",
         filename="model-{epoch:02d}-{val_accuracy:.2f}",
     )
-    callbacks = []
+    trainer_callbacks = []
     if patience is not None:
-        callbacks.append(
+        trainer_callbacks.append(
             callbacks.early_stopping.EarlyStopping(
                 monitor="val_accuracy",
                 min_delta=0.00,
@@ -138,19 +139,21 @@ def train(
                 mode="max",
             )
         )
-    callbacks.append(ckp_callback)
-    callbacks.append(callbacks.LearningRateMonitor(logging_interval="epoch"))
-    callbacks.append(callbacks.TQDMProgressBar())
+    trainer_callbacks.append(ckp_callback)
+    trainer_callbacks.append(
+        callbacks.LearningRateMonitor(logging_interval="epoch")
+    )
+    trainer_callbacks.append(callbacks.TQDMProgressBar())
     trainer = pl.Trainer(
         accelerator="gpu" if gpu and torch.cuda.is_available() else "cpu",
         devices=1,
         logger=logger,
-        max_epochs=epochs,
+        max_epochs=max_epochs,
         gradient_clip_val=gradient_clip,
         check_val_every_n_epoch=eval_every,
         enable_checkpointing=True,
-        default_root_dir=output_path,
-        callbacks=callbacks,
+        default_root_dir=model_path,
+        callbacks=trainer_callbacks,
         log_every_n_steps=len(train_set) // batch_size,
         num_sanity_val_steps=0,
     )
@@ -159,13 +162,13 @@ def train(
     train_set.write_index(trainer.loggers[0].log_dir, experiment)
     dev_set.load_index(trainer.loggers[0].log_dir, experiment)
     # Trains model.
-    model_cls = models.get_model_cls(arch, attn, include_features)
+    model_cls = models.get_model_cls(arch, attention, include_features)
     util.log_info(f"Model: {model_cls.__name__}")
-    if train_from is not None:
-        util.log_info(f"Loading model from {train_from}")
-        model = model_cls.load_from_checkpoint(train_from).to(device)
+    if train_from_path is not None:
+        util.log_info(f"Loading model from {train_from_path}")
+        model = model_cls.load_from_checkpoint(train_from_path).to(device)
         util.log_info("Training...")
-        trainer.fit(model, train_loader, dev_loader, ckpt_path=train_from)
+        trainer.fit(model, train_loader, dev_loader, ckpt_path=train_from_path)
     else:
         expert = None
         if arch in ["transducer"]:
@@ -173,15 +176,15 @@ def train(
                 train_set,
                 epochs=oracle_em_epochs,
                 oracle_factor=oracle_factor,
-                sed_params_path=sed_params_path,
+                sed_path=sed_path,
             )
         model = model_cls(
             beta1=beta1,
             beta2=beta2,
             bidirectional=bidirectional,
-            dec_layers=dec_layers,
+            decoder_layers=decoder_layers,
             dropout=dropout,
-            enc_layers=enc_layers,
+            encoder_layers=encoder_layers,
             hidden_size=hidden_size,
             embedding_size=embedding_size,
             end_idx=train_set.end_idx,
@@ -190,13 +193,13 @@ def train(
             features_idx=getattr(train_set, "features_idx", -1),
             features_vocab_size=getattr(train_set, "features_vocab_size", -1),
             label_smoothing=label_smoothing,
-            lr=learning_rate,
-            max_decode_len=max_decode_len,
-            max_seq_len=max_seq_len,
-            nhead=nhead,
-            optim=optimizer,
+            learning_rate=learning_rate,
+            max_decode_length=max_decode_length,
+            max_sequence_length=max_sequence_length,
+            attention_heads=attention_heads,
+            optimizer=optimizer,
             output_size=train_set.target_vocab_size,
-            scheduler=lr_scheduler,
+            scheduler=scheduler,
             pad_idx=train_set.pad_idx,
             start_idx=train_set.start_idx,
             vocab_size=train_set.source_vocab_size,
@@ -205,230 +208,12 @@ def train(
         util.log_info("Training...")
         trainer.fit(model, train_loader, dev_loader)
     util.log_info("Training complete")
-    return ckp_callback.best_model_path
-
-
-@click.command()
-@click.option("--train-data-path", required=True)
-@click.option("--dev-data-path", required=True)
-@click.option("--dev-predictions-path")
-@click.option("--source-col", type=int, default=1)
-@click.option("--target-col", type=int, default=2)
-@click.option(
-    "--features-col",
-    type=int,
-    default=3,
-    help="0 indicates no feature column should be used",
-)
-@click.option("--source-sep", type=str, default="")
-@click.option("--target-sep", type=str, default="")
-@click.option("--features-sep", type=str, default=";")
-@click.option("--tied-vocabulary/--no-tied-vocabulary", default=True)
-@click.option("--output-path", required=True)
-@click.option("--dataloader-workers", type=int, default=1)
-@click.option("--experiment-name", required=True)
-@click.option("--seed", type=int, default=time.time_ns())
-@click.option("--epochs", type=int, default=20)
-@click.option(
-    "--arch",
-    type=click.Choice(
-        [
-            "feature_invariant_transformer",
-            "lstm",
-            "pointer_generator_lstm",
-            "transducer",
-            "transformer",
-        ]
-    ),
-    required=True,
-)
-@click.option(
-    "--oracle-em-epochs",
-    type=int,
-    default=0,
-    help="Number of EM epochs (`--arch transducer` only)",
-)
-@click.option(
-    "--oracle-factor",
-    type=int,
-    default=1,
-    help="Roll-in schedule parameter (`--arch transducer` only)",
-)
-@click.option(
-    "--sed-params-path",
-    type=str,
-    default=None,
-    help="Path to SED parameters (`transducer` only)",
-)
-@click.option("--patience", type=int)
-@click.option("--learning-rate", type=float, required=True)
-@click.option("--label-smoothing", type=float)
-@click.option("--gradient-clip", type=float, default=0.0)
-@click.option("--batch-size", type=int, default=16)
-@click.option("--eval-batch-size", type=int, default=1)
-@click.option("--embedding-size", type=int, default=128)
-@click.option("--hidden-size", type=int, default=256)
-@click.option("--dropout", type=float, default=0.3)
-@click.option("--enc-layers", type=int, default=1)
-@click.option("--dec-layers", type=int, default=1)
-@click.option("--max-seq-len", type=int, default=128)
-@click.option("--nhead", type=int, default=4)
-@click.option("--dropout", type=float, default=0.1)
-@click.option("--optimizer", default="adadelta")
-@click.option(
-    "--beta1",
-    default=0.9,
-    type=float,
-    help="beta1 (`--optimizer adam` only)",
-)
-@click.option(
-    "--beta2",
-    default="0.999",
-    type=float,
-    help="beta2 (`--optimizer adam` only)",
-)
-@click.option("--warmup-steps", default=1)
-@click.option("--lr-scheduler")
-@click.option(
-    "--train-from",
-    help="Path to checkpoint to continue training from",
-)
-@click.option("--bidirectional/--no-bidirectional", type=bool, default=True)
-@click.option(
-    "--attn/--no-attn",
-    type=bool,
-    default=True,
-    help="Use attention (`--arch lstm` only)",
-)
-@click.option("--max-decode-len", type=int, default=128)
-@click.option("--save-top-k", type=int, default=1)
-@click.option("--eval-every", type=int, default=5)
-@click.option("--gpu/--no-gpu", default=True)
-@click.option("--wandb/--no-wandb", default=False)
-def main(
-    train_data_path,
-    dev_data_path,
-    dev_predictions_path,
-    tied_vocabulary,
-    source_col,
-    target_col,
-    features_col,
-    source_sep,
-    target_sep,
-    features_sep,
-    output_path,
-    dataloader_workers,
-    experiment_name,
-    seed,
-    epochs,
-    arch,
-    oracle_em_epochs,
-    oracle_factor,
-    sed_params_path,
-    patience,
-    learning_rate,
-    label_smoothing,
-    gradient_clip,
-    batch_size,
-    eval_batch_size,
-    embedding_size,
-    hidden_size,
-    dropout,
-    enc_layers,
-    dec_layers,
-    max_seq_len,
-    nhead,
-    optimizer,
-    beta1,
-    beta2,
-    warmup_steps,
-    lr_scheduler,
-    train_from,
-    bidirectional,
-    attn,
-    max_decode_len,
-    save_top_k,
-    eval_every,
-    gpu,
-    wandb,
-):
-    """Training.
-
-    Args:
-        train_data_path (_type_): _description_
-        dev_data_path (_type_): _description_
-        dev_predictions_path (_type_): _description_
-        source_col (_type_): _description_
-        target_col (_type_): _description_
-        features_col (_type_): _description_
-        source_sep (_type_): _description_
-        target_sep (_type_): _description_
-        features_sep (_type_): _description_
-        tied_vocabulary (_type_): _description_
-        output_path (_type_): _description_
-        dataset (_type_): _description_
-        dataloader_workers (_type_): _description_
-        experiment_name (_type_): _description_
-        seed (_type_): _description_
-        epochs (_type_): _description_
-        arch (_type_): _description_
-        oracle_em_epochs (_type_): _description_
-        oracle_factor (_type_): _description_
-        sed_params_path (_type_): _description_
-        patience (_type_): _description_
-        learning_rate (_type_): _description_
-        label_smoothing (_type_): _description_
-        gradient_clip (_type_): _description_
-        batch_size (_type_): _description_
-        eval_batch_size (_type_): _description_
-        embedding_size (_type_): _description_
-        hidden_size (_type_): _description_
-        dropout (_type_): _description_
-        enc_layers (_type_): _description_
-        dec_layers (_type_): _description_
-        max_seq_len: (_type_) _description_
-        nhead (_type_): _description_
-        optimizer (_type_): _description_
-        beta1 (_type_): _description_
-        beta2 (_type_): _description_
-        warmup_steps (_type_): _description_
-        scheduler (_type_): _description_
-        train_from (_type_): _description_
-        bidirectional (_type_): _description_
-        attn (_type_): _description_
-        max_decode_len (_type_): _description_
-        save_top_k (_type_): _description_
-        eval_every (_type_): _description_
-        gpu (_type_): _description_
-        wandb (_type_): _description_
-    """
-    util.log_info("Arguments:")
-    for arg, val in click.get_current_context().params.items():
-        util.log_info(f"\t{arg}: {val!r}")
-    best_model_path = train(...)
-    util.log_info(f"Best model_path: {best_model_path}")
-    # If specified, write training and/or dev set predictions.
+    best_model_path = ckp_callback.best_model_path
+    # If specified, write dev set predictions.
     # TODO: Add beam-width option so we can make predictions with beam search.
-    if train_predictions_path or dev_predictions_path:
-        model_cls = models.get_model_cls(arch, attn, include_features)
-        model = model_cls.load_from_checkpoint(ckp_callback.best_model_path).to(device)
-    if train_predictions_path:
-        predict.predict(
-            model,
-            train_loader,
-            train_predictions_path,
-            arch,
-            batch_size,
-            source_col,
-            target_col,
-            features_col,
-            source_sep,
-            target_sep,
-            features_sep,
-            include_features,
-            gpu,
-        )
     if dev_predictions_path:
+        util.log_info(f"Writing dev predictions to {dev_predictions_path}")
+        model = model_cls.load_from_checkpoint(best_model_path).to(device)
         predict.predict(
             model,
             dev_loader,
@@ -444,6 +229,349 @@ def main(
             include_features,
             gpu,
         )
+    return best_model_path
+
+
+@click.command()
+@click.option(
+    "--experiment", type=str, required=True, help="Name of experiment"
+)
+@click.option(
+    "--train-path", type=str, required=True, help="Path to input training data"
+)
+@click.option(
+    "--dev-path",
+    type=str,
+    required=True,
+    help="Path to input development data",
+)
+@click.option(
+    "--model-path",
+    type=str,
+    required=True,
+    help="Path to output directory for models",
+)
+@click.option(
+    "--train-from-path",
+    type=str,
+    help="Optional: training will begin from this checkpoint",
+)
+@click.option(
+    "--source-col",
+    type=int,
+    default=1,
+    help="1-based index for the source column",
+)
+@click.option(
+    "--target-col",
+    type=int,
+    default=2,
+    help="1-based index for the target column",
+)
+@click.option(
+    "--features-col",
+    type=int,
+    default=3,
+    help="1-based index for the features column; "
+    "0 indicates the model will not use features",
+)
+@click.option(
+    "--source-sep",
+    type=str,
+    default="",
+    help="String used to split source string into symbols; "
+    "an empty string (the default) indicates that each Unicode codepoint in "
+    "the source string is its own symbol",
+)
+@click.option(
+    "--target-sep",
+    type=str,
+    default="",
+    help="String used to split target string into symbols; "
+    "an empty string (the default) indicates that each Unicode codepoint in "
+    "the target string is its own symbol",
+)
+@click.option(
+    "--features-sep",
+    type=str,
+    default=";",
+    help="String used to split the features string into symbols; "
+    "an empty string indicates that each unicode codepoint in the features "
+    "string is its own symbol",
+)
+@click.option(
+    "--arch",
+    type=click.Choice(
+        [
+            "feature_invariant_transformer",
+            "lstm",
+            "pointer_generator_lstm",
+            "transducer",
+            "transformer",
+        ]
+    ),
+    default="lstm",
+    help="Model architecture to use",
+)
+@click.option(
+    "--attention/--no-attention",
+    type=bool,
+    default=True,
+    help="Uses attention (LSTM architecture only; ignored otherwise)",
+)
+@click.option(
+    "--attention-heads",
+    type=int,
+    default=4,
+    help="Number of attention heads "
+    "(transformer-backed architectures only; ignored otherwise)",
+)
+@click.option(
+    "--bidirectional/--no-bidirectional",
+    type=bool,
+    default=True,
+    help="Uses a bidirectional encoder "
+    "(LSTM-backed architectures only; ignored otherwise)",
+)
+@click.option(
+    "--decoder-layers", type=int, default=1, help="Number of decoder layers"
+)
+@click.option(
+    "--embedding-size",
+    type=int,
+    default=128,
+    help="Dimensionality of embeddings",
+)
+@click.option(
+    "--encoder-layers", type=int, default=1, help="Number of encoder layers"
+)
+@click.option(
+    "--hidden-size",
+    type=int,
+    default=512,
+    help="Dimensionality of the hidden layer(s)",
+)
+@click.option("--max-sequence-length", type=int, default=128)
+@click.option("--max-decode-length", type=int, default=128)
+@click.option(
+    "--oracle-em-epochs",
+    type=int,
+    default=0,
+    help="Number of EM epochs "
+    "(transducer architecture only; ignored otherwise)",
+)
+@click.option(
+    "--oracle-factor",
+    type=int,
+    default=1,
+    help="Roll-in schedule parameter "
+    "(transducer architecture only; ignored otherwise)",
+)
+@click.option(
+    "--sed-path",
+    type=str,
+    help="Path to SED parameters "
+    "(transducer architecture only; ignored otherwise)",
+)
+@click.option(
+    "--tied-vocabulary/--no-tied-vocabulary",
+    default=True,
+    help="Share embeddings between source and target",
+)
+@click.option(
+    "--batch-size", type=int, default=128, help="Batch size for training"
+)
+@click.option(
+    "--beta1",
+    type=float,
+    default=0.9,
+    help="beta_1 for Adam optimizer (ignored otherwise)",
+)
+@click.option(
+    "--beta2",
+    type=float,
+    default=0.9,
+    help="beta_2 for Adam optimizer (ignored otherwise)",
+)
+@click.option(
+    "--dataloader-workers", type=int, default=1, help="Number of data loaders"
+)
+@click.option("--dropout", type=float, default=0.2, help="Dropout probability")
+@click.option(
+    "--eval-batch-size",
+    type=int,
+    default=128,
+    help="Batch size for evaluation",
+)
+@click.option(
+    "--eval-every", type=int, default=5, help="Number of epochs per evaluation"
+)
+@click.option(
+    "--gradient-clip",
+    type=float,
+    help="Optional: threshold for gradient clipping",
+)
+@click.option("--gpu/--no-gpu", default=True, help="Use GPU")
+@click.option(
+    "--label-smoothing",
+    type=float,
+    help="Optional: coefficient for label smoothing",
+)
+@click.option(
+    "--learning-rate", type=float, default=0.001, help="Learning rate"
+)
+@click.option(
+    "--max-epochs", type=int, default=40, help="Maximum number of epochs"
+)
+@click.option(
+    "--optimizer",
+    type=click.Choice(["adadelta", "adam", "sgd"]),
+    default="adam",
+    help="Optimizer",
+)
+@click.option(
+    "--patience",
+    type=int,
+    help="Optional: number of evaluations without any improvement needed to "
+    "stop training early",
+)
+@click.option(
+    "--save-top-k",
+    type=int,
+    default=1,
+    help="Number of the best models to be saved",
+)
+@click.option(
+    "--scheduler",
+    type=click.Choice(["warmupinvsq", None]),
+    default=None,
+    help="Name of learning rate scheduler",
+)
+@click.option(
+    "--seed",
+    type=int,
+    default=time.time_ns(),
+    help="Optional: random seed (current time used if not specified)",
+)
+@click.option(
+    "--warmup-steps",
+    type=int,
+    default=0,
+    help="Number of warmup steps "
+    "(warmupinvsq scheduler only; ignored otherwise",
+)
+@click.option(
+    "--wandb/--no-wandb",
+    default=False,
+    help="Use Weights & Biases logging (log-in required)",
+)
+@click.option(
+    "--dev-predictions-path",
+    type=str,
+    help="Optional: path for best model's development set predictions",
+)
+def main(
+    experiment,
+    # Path arguments.
+    train_path,
+    dev_path,
+    model_path,
+    train_from_path,
+    # Data format arguments.
+    source_col,
+    target_col,
+    features_col,
+    source_sep,
+    target_sep,
+    features_sep,
+    # Architecture arguments.
+    arch,
+    attention,
+    attention_heads,
+    bidirectional,
+    decoder_layers,
+    embedding_size,
+    encoder_layers,
+    hidden_size,
+    max_decode_length,
+    max_sequence_length,
+    oracle_em_epochs,
+    oracle_factor,
+    sed_path,
+    tied_vocabulary,
+    # Training arguments.
+    batch_size,
+    beta1,
+    beta2,
+    dataloader_workers,
+    dropout,
+    eval_batch_size,
+    eval_every,
+    gradient_clip,
+    gpu,
+    label_smoothing,
+    learning_rate,
+    max_epochs,
+    optimizer,
+    patience,
+    save_top_k,
+    scheduler,
+    seed,
+    warmup_steps,
+    wandb,
+    # Development predictions.
+    dev_predictions_path: str,
+):
+    util.log_info("Arguments:")
+    for arg, val in click.get_current_context().params.items():
+        util.log_info(f"\t{arg}: {val!r}")
+    best_model_path = train(
+        experiment,
+        train_path,
+        dev_path,
+        model_path,
+        train_from_path=train_from_path,
+        source_col=source_col,
+        target_col=target_col,
+        features_col=features_col,
+        source_sep=source_sep,
+        target_sep=target_sep,
+        features_sep=features_sep,
+        arch=arch,
+        attention=attention,
+        attention_heads=attention_heads,
+        bidirectional=bidirectional,
+        embedding_size=embedding_size,
+        encoder_layers=encoder_layers,
+        hidden_size=hidden_size,
+        max_sequence_length=max_sequence_length,
+        max_decode_length=max_decode_length,
+        oracle_em_epochs=oracle_em_epochs,
+        oracle_factor=oracle_factor,
+        sed_path=sed_path,
+        tied_vocabulary=tied_vocabulary,
+        batch_size=batch_size,
+        beta1=beta1,
+        beta2=beta2,
+        dataloader_workers=dataloader_workers,
+        dropout=dropout,
+        eval_batch_size=eval_batch_size,
+        eval_every=eval_every,
+        gradient_clip=gradient_clip,
+        gpu=gpu,
+        label_smoothing=label_smoothing,
+        learning_rate=learning_rate,
+        max_epochs=max_epochs,
+        patience=patience,
+        optimizer=optimizer,
+        save_top_k=save_top_k,
+        scheduler=scheduler,
+        seed=seed,
+        warmup_steps=warmup_steps,
+        wandb=wandb,
+        dev_predictions_path=dev_predictions_path,
+    )
+    util.log_info(f"Best model_path: {best_model_path}")
 
 
 if __name__ == "__main__":

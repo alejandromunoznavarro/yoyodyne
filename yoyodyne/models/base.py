@@ -185,9 +185,10 @@ class BaseEncoderDecoder(pl.LightningModule):
             optim.Optimizer: optimizer for training.
         """
         optimizer = self._get_optimizer()
-        scheduler = self._get_lr_scheduler(optimizer[0])
+        scheduler = self._get_scheduler(optimizer[0])
         util.log_info("Optimization details:")
         util.log_info(optimizer)
+        util.log_info("Scheduler details:")
         util.log_info(scheduler)
         return optimizer, scheduler
 
@@ -197,20 +198,21 @@ class BaseEncoderDecoder(pl.LightningModule):
         Returns:
             optim.Optimizer: optimizer for training.
         """
-        optim_fac = {
+        optimizer_fac = {
             "adadelta": optim.Adadelta,
             "adam": optim.Adam,
             "sgd": optim.SGD,
         }
-        optimizer = optim_fac[self.optim_name]
-        kwargs = {"lr": self.lr}
-        if self.optim_name == "adam":
-            kwargs["betas"] = (self.beta1, self.beta2)
+        try:
+            optimizer = optimizer_fac[self.optimizer]
+        except KeyError:
+            raise NotImplementedError(f"Optimizer {optimizer} not found")
+        kwargs = {"lr": self.learning_rate}
+        if self.optimizer == "adam":
+            kwargs["betas"] = self.beta1, self.beta2
         return [optimizer(self.parameters(), **kwargs)]
 
-    def _get_lr_scheduler(
-        self, optimizer: optim.Optimizer
-    ) -> optim.lr_scheduler:
+    def _get_scheduler(self, optimizer: optim.Optimizer) -> optim.lr_scheduler:
         """Factory for selecting the scheduler.
 
         Args:
@@ -225,9 +227,12 @@ class BaseEncoderDecoder(pl.LightningModule):
         scheduler_fac = {
             "warmupinvsqr": schedulers.WarmupInverseSquareRootSchedule
         }
-        scheduler = scheduler_fac[self.scheduler](
-            optimizer=optimizer, warmup_steps=self.warmup_steps
-        )
+        try:
+            scheduler = scheduler_fac[self.scheduler](
+                optimizer=optimizer, warmup_steps=self.warmup_steps
+            )
+        except KeyError:
+            raise NotImplementedError(f"Scheduler {scheduler} not found")
         scheduler_cfg = {
             "scheduler": scheduler,
             "interval": "step",
@@ -257,6 +262,7 @@ class BaseEncoderDecoder(pl.LightningModule):
                 predict: torch.Tensor, target: torch.Tensor
             ) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
                 """After:
+
                     https://github.com/NVIDIA/DeepLearningExamples/blob/
                     8d8b21a933fff3defb692e0527fca15532da5dc6/PyTorch/Classification/
                     ConvNets/image_classification/smoothing.py#L18

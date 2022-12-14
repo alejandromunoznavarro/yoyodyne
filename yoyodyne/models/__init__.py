@@ -2,7 +2,6 @@
 
 import pytorch_lightning as pl
 
-from .. import util
 from .lstm import LSTMEncoderDecoder, LSTMEncoderDecoderAttention
 from .pointer_generator import (
     PointerGeneratorLSTMEncoderDecoderFeatures,

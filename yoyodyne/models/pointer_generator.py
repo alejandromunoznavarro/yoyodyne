@@ -28,14 +28,17 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
     def __init__(self, *args, **kwargs):
         """Initializes the pointer-generator model with an LSTM backend."""
         super().__init__(*args, **kwargs)
+        print("Is this bidirectional?:", self.bidirectional)
         # We use the inherited defaults for the source embeddings/encoder.
-        enc_size = self.hidden_size * self.num_directions
-        self.source_attention = attention.Attention(enc_size, self.hidden_size)
+        encoder_size = self.hidden_size * self.directions
+        self.source_attention = attention.Attention(
+            encoder_size, self.hidden_size
+        )
         # Overrides classifier to take larger input.
         self.classifier = nn.Linear(3 * self.hidden_size, self.output_size)
         self.generation_probability = (
             generation_probability.GenerationProbability(
-                self.embedding_size, self.hidden_size, enc_size
+                self.embedding_size, self.hidden_size, encoder_size
             )
         )
 
@@ -43,20 +46,20 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
         self,
         source: torch.Tensor,
         source_mask: torch.Tensor,
-        encoder: torch.nn.LSTM,
+        encoder: nn.LSTM,
     ) -> torch.Tensor:
         """Encodes the input.
 
         Args:
             source (torch.Tensor).
             source_mask (torch.Tensor).
-            encoder (torch.nn.LSTM).
+            encoder (nn.LSTM).
 
         Returns:
             torch.Tensor: sequence of encoded symbols.
         """
         embedded = self.source_embeddings(source)
-        embedded = self.dropout_layer(embedded)
+        embedded = self.dropout(embedded)
         lens = (source_mask == 0).sum(dim=1).to("cpu")
         packed = nn.utils.rnn.pack_padded_sequence(
             embedded, lens, batch_first=True, enforce_sorted=False
@@ -64,7 +67,7 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
         # -> B x seq_len x encoder_dim,
         # (D*layers x B x hidden_size, D*layers x B x hidden_size)
         packed_outs, (H, C) = self.encoder(packed)
-        encoded, _ = torch.nn.utils.rnn.pad_packed_sequence(
+        encoded, _ = nn.utils.rnn.pad_packed_sequence(
             packed_outs,
             batch_first=True,
             padding_value=self.pad_idx,
@@ -73,10 +76,10 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
         # Sums over directions, keeping layers.
         # -> num_layers x B x hidden_size.
         H = H.view(
-            self.enc_layers, self.num_directions, H.size(1), H.size(2)
+            self.encoder_layers, self.directions, H.size(1), H.size(2)
         ).sum(axis=1)
         C = C.view(
-            self.enc_layers, self.num_directions, C.size(1), C.size(2)
+            self.encoder_layers, self.directions, C.size(1), C.size(2)
         ).sum(axis=1)
         return encoded, (H, C)
 
@@ -103,7 +106,7 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
             Tuple[torch.Tensor, torch.Tensor].
         """
         embedded = self.target_embeddings(symbol)
-        embedded = self.dropout_layer(embedded)
+        embedded = self.dropout(embedded)
         # -> 1 x B x decoder_dim.
         last_h, last_c = last_hiddens
         source_context, source_attn_weights = self.source_attention(
@@ -171,7 +174,7 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
         )
         preds = []
         num_steps = (
-            target.size(1) if target is not None else self.max_decode_len
+            target.size(1) if target is not None else self.max_decode_length
         )
         # Tracks when each sequence has decoded an EOS.
         finished = torch.zeros(batch_size).to(self.device)
@@ -229,7 +232,9 @@ class PointerGeneratorLSTMEncoderDecoderNoFeatures(lstm.LSTMEncoderDecoder):
             # preds = self.beam_decode(
             #     batch_size, x_mask, enc_out, beam_width=self.beam_width
             # )
-            raise NotImplementedError
+            raise NotImplementedError(
+                "Pointer-generator beam search is not yet supported"
+            )
         else:
             preds = self.decode(
                 batch_size,
@@ -268,24 +273,25 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
         self.feature_encoder = nn.LSTM(
             self.embedding_size,
             self.hidden_size,
-            num_layers=self.enc_layers,
-            dropout=self.dropout,
+            num_layers=self.encoder_layers,
+            dropout=self.dropout.p if self.encoder_layers > 1 else 0.0,
             batch_first=True,
             bidirectional=self.bidirectional,
         )
         # Initializes the decoder.
         self.linear_h = nn.Linear(2 * self.hidden_size, self.hidden_size)
         self.linear_c = nn.Linear(2 * self.hidden_size, self.hidden_size)
-        enc_size = self.hidden_size * self.num_directions
+        encoder_size = self.hidden_size * self.directions
         self.feature_attention = attention.Attention(
-            enc_size, self.hidden_size
+            encoder_size, self.hidden_size
         )
         # Overrides decoder to be larger.
+        decoder_size = 2 * encoder_size + self.embedding_size
         self.decoder = nn.LSTM(
-            (2 * enc_size) + self.embedding_size,
+            decoder_size,
             self.hidden_size,
-            dropout=self.dropout,
-            num_layers=self.dec_layers,
+            num_layers=self.decoder_layers,
+            dropout=self.dropout.p if self.decoder_layers > 1 else 0.0,
             batch_first=True,
         )
         # Overrides classifier to take larger input.
@@ -293,7 +299,7 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
         # Overrides GenerationProbability to have larger hidden_size.
         self.generation_probability = (
             generation_probability.GenerationProbability(
-                self.embedding_size, self.hidden_size, 2 * enc_size
+                self.embedding_size, self.hidden_size, 2 * encoder_size
             )
         )
 
@@ -301,28 +307,28 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
         self,
         source: torch.Tensor,
         source_mask: torch.Tensor,
-        encoder: torch.nn.LSTM,
+        encoder: nn.LSTM,
     ) -> torch.Tensor:
         """Encodes the input with the TransformerEncoder.
 
         Args:
             source (torch.Tensor).
             source_mask (torch.Tensor).
-            encoder (torch.nn.LSTM).
+            encoder (nn.LSTM).
 
         Returns:
             torch.Tensor: sequence of encoded symbols.
         """
         embedded = self.source_embeddings(source)
-        embedded = self.dropout_layer(embedded)
-        lens = (source_mask == 0).sum(dim=1).to("cpu")
+        embedded = self.dropout(embedded)
+        lengths = (source_mask == 0).sum(dim=1).to("cpu")
         packed = nn.utils.rnn.pack_padded_sequence(
-            embedded, lens, batch_first=True, enforce_sorted=False
+            embedded, lengths, batch_first=True, enforce_sorted=False
         )
         # -> B x seq_len x encoder_dim,
         # (D*layers x B x hidden_size, D*layers x B x hidden_size).
         packed_outs, (H, C) = self.encoder(packed)
-        encoded, _ = torch.nn.utils.rnn.pad_packed_sequence(
+        encoded, _ = nn.utils.rnn.pad_packed_sequence(
             packed_outs,
             batch_first=True,
             padding_value=self.pad_idx,
@@ -331,10 +337,10 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
         # Sums over directions, keeping layers.
         # -> num_layers x B x hidden_size.
         H = H.view(
-            self.enc_layers, self.num_directions, H.size(1), H.size(2)
+            self.encoder_layers, self.directions, H.size(1), H.size(2)
         ).sum(axis=1)
         C = C.view(
-            self.enc_layers, self.num_directions, C.size(1), C.size(2)
+            self.encoder_layers, self.directions, C.size(1), C.size(2)
         ).sum(axis=1)
         return encoded, (H, C)
 
@@ -365,7 +371,7 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
             Tuple[torch.Tensor, torch.Tensor].
         """
         embedded = self.target_embeddings(symbol)
-        embedded = self.dropout_layer(embedded)
+        embedded = self.dropout(embedded)
         # -> 1 x B x decoder_dim.
         last_h, last_c = last_hiddens
         source_context, source_attn_weights = self.source_attention(
@@ -440,7 +446,7 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
         )
         preds = []
         num_steps = (
-            target.size(1) if target is not None else self.max_decode_len
+            target.size(1) if target is not None else self.max_decode_length
         )
         # Tracks when each sequence has decoded an EOS.
         finished = torch.zeros(batch_size).to(self.device)
@@ -466,7 +472,7 @@ class PointerGeneratorLSTMEncoderDecoderFeatures(
                 decoder_input = self._get_predicted(output)
                 # Tracks which sequences have decoded an EOS.
                 finished = torch.logical_or(
-                    finished, (decoder_input == self.end_idx)
+                    finished, decoder_input == self.end_idx
                 )
                 # Breaks when all batches predicted an END symbol.
                 if finished.all():
