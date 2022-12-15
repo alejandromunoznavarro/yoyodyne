@@ -147,7 +147,7 @@ class TransducerNoFeatures(lstm.LSTMEncoderDecoder):
             ]
         # Start of decoding.
         last_hiddens = self.init_hiddens(batch_size)
-        for _ in range(self.max_decode_len):
+        for _ in range(self.max_decode_length):
             # Checks if completed all sequences.
             not_complete = last_action != self.actions.end_idx
             if not any(not_complete):
@@ -399,7 +399,7 @@ class TransducerNoFeatures(lstm.LSTMEncoderDecoder):
             target,
             alignment,
             prediction,
-            max_action_seq_len=self.max_decode_len,
+            max_action_seq_len=self.max_decode_length,
         )
         action_scores = self.remap_actions(raw_action_scores)
         optimal_value = min(action_scores.values())

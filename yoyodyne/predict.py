@@ -2,6 +2,7 @@
 
 import csv
 import os
+import warnings
 
 from typing import Iterator, Optional
 
@@ -11,6 +12,10 @@ import torch
 from torch.utils import data
 
 from . import collators, datasets, models, util
+
+
+# Silences less useful PL warnings.
+warnings.filterwarnings("ignore", ".*does not have many workers.*")
 
 
 class Predictor:

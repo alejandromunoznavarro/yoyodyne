@@ -396,18 +396,19 @@ def get_expert(
     train_data: data.Dataset,
     epochs: int = 10,
     oracle_factor: int = 1,
-    sed_params_path: str = None,
+    sed_path: str = None,
 ) -> Expert:
     """Generates expert object for training transducer.
 
     Args:
         data (data.Dataset): dataset for generating expert vocabulary.
         epochs (int): number of EM epochs.
-        sched_factor (float): scaling factor to determine rate of
+        oracle_factor (int): scaling factor to determine rate of
             expert rollout sampling.
+        sed_path (str, optional): path to SED parameters.
 
     Returns:
-        expert.Expert.
+        Expert.
     """
 
     # TODO: Figure out a way to avoid these functions.
@@ -455,8 +456,8 @@ def get_expert(
             target = target.tolist()[:-1]
             actions.encode_actions(target)
 
-    if sed_params_path:
-        sed_params = sed.ParamDict.read_params(sed_params_path)
+    if sed_path:
+        sed_params = sed.ParamDict.read_params(sed_path)
         sed_aligner = sed.StochasticEditDistance(sed_params)
         actions = ActionVocabulary()
         # Loads vocabulary into action vocabulary.

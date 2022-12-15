@@ -2,6 +2,7 @@
 
 import os
 import time
+import warnings
 from typing import Optional
 
 import click
@@ -11,6 +12,11 @@ from pytorch_lightning import callbacks, loggers
 from torch.utils import data
 
 from . import collators, datasets, evaluators, models, predict, util
+
+
+# Silences less useful PL warnings.
+warnings.filterwarnings("ignore", ".*does not have many workers.*")
+warnings.filterwarnings("ignore", ".*log file in this directory.*")
 
 
 def train(
@@ -98,7 +104,7 @@ def train(
         batch_size (int).
         beta1 (float).
         beta2 (float).
-        dataloader_workers (int)
+        dataloader_workers (int).
         dropout (float).
         max_epochs (int).
         eval_batch_size (int).
