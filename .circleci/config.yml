@@ -6,7 +6,6 @@ workflows:
     jobs:
       - python3.9
       - python3.10
-      - python3.11
 
 jobs:
   python3.9: &template
@@ -42,7 +41,3 @@ jobs:
     <<: *template
     docker:
       - image: python:3.10
-  python3.11:
-    <<: *template
-    docker:
-      - image: python:3.11
