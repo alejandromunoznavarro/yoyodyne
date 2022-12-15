@@ -92,7 +92,7 @@ def test_bilstm(make_model_dir, language, expected_accuracy):
     )
     accuracy = predictor.accuracy()
     print(f"Language:\t{language};\tAccuracy: {accuracy:.4f}")
-    #assert predictor.accuracy() == pytest.approx(expected_accuracy, rel=REL)
+    # FIXME: bring assertion back.
 
 
 """
