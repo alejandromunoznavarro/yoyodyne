@@ -65,6 +65,7 @@ def train(
     wandb: bool = False,
     # Development predictions.
     dev_predictions_path: Optional[str] = None,
+    **kwargs,
 ) -> str:
     """Performs training, returning the path to the best model.
 
@@ -113,7 +114,8 @@ def train(
         seed (int).
         warmup_steps (int).
         wandb (bool).
-        dev_predictions_path (str, optional)
+        dev_predictions_path (str, optional).
+        **kwargs: ignored.
 
     Returns:
         The path to the best model.
@@ -462,7 +464,7 @@ def train(
     type=float,
     help="Optional: threshold for gradient clipping",
 )
-@click.option("--gpu/--no-gpu", default=True, help="Use GPU")
+@click.option("--gpu/--no-gpu", default=True, help="Uses GPU")
 @click.option(
     "--label-smoothing",
     type=float,

@@ -53,7 +53,29 @@ class Predictor:
         batch_size: int = 128,
         beam_width: Optional[int] = None,
         gpu: bool = True,
+        **kwargs,
     ):
+        """Initializes the predictor.
+
+        Args:
+            experiment (str).
+            input_path (str).
+            model_dir (str).
+            model_path (str).
+            source_col (int).
+            target_col (int).
+            features_col (int).
+            source_sep (str).
+            target_sep (str).
+            features_sep (str).
+            arch (str).
+            attention (str).
+            tied_vocabulary (bool).
+            batch_size (int).
+            beam_width (int, optional).
+            gpu (bool).
+            **kwargs: ignored.
+        """
         self.source_col = source_col
         self.target_col = target_col
         self.features_col = features_col
@@ -332,6 +354,7 @@ class Predictor:
     help="Optional: width for beam search; "
     "if not specified beam search is not used",
 )
+@click.option("--gpu/--no-gpu", default=True, help="Use GPU")
 def main(
     experiment,
     # Path arguments.
@@ -353,6 +376,7 @@ def main(
     # Prediction arguments.
     batch_size,
     beam_width,
+    gpu,
 ):
     """Makes predictions with a trained sequence-to-sequence model.
 
@@ -372,6 +396,8 @@ def main(
         tied_vocabulary (bool).
         batch_size (int).
         beam_width (int, optional).
+        gpu (bool).
+        **kwargs: ignored.
     """
     util.log_info("Arguments:")
     for arg, val in click.get_current_context().params.items():
@@ -391,6 +417,7 @@ def main(
         tied_vocabulary=tied_vocabulary,
         batch_size=batch_size,
         beam_width=beam_width,
+        gpu=gpu,
     )
     predictor.write(output_path)
 

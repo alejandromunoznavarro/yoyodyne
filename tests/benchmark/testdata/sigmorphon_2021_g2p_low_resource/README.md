@@ -1,0 +1,2 @@
+-   [Data](https://github.com/sigmorphon/2021-task1/tree/main/data/low)
+-   [Paper](https://aclanthology.org/2021.sigmorphon-1.13/)

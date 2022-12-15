@@ -6,6 +6,7 @@ workflows:
     jobs:
       - python3.9
       - python3.10
+      - python3.11
 
 jobs:
   python3.9: &template
@@ -32,7 +33,16 @@ jobs:
               pip install --progress-bar off --upgrade pip setuptools
               python setup.py sdist
               pip install dist/`ls dist/ | grep .tar.gz`
+      - run:
+          name: Runs unit tests
+          working_directory: ~/project
+          command: |
+              pytest -vv tests/unit
   python3.10:
     <<: *template
     docker:
       - image: python:3.10
+  python3.11:
+    <<: *template
+    docker:
+      - image: python:3.11
